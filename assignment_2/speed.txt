@@ -1,0 +1,432 @@
+#acl mike,len,susatyo,s4098312:admin,read,write
+= COMP226 Assignment 2 2009 Report =
+
+  ~-Simon A. Dawson, 40983129-~
+
+  ~-simon.dawson1 @ students.mq.edu.au-~
+
+  ~-28 October 2009-~
+
+== Abstract ==
+Since the invention of the first commercially available microprocessor in November 1971 the ability of machines to compute information has increased dramatically. From the Intel 4004 (a 4 bit processor, ~2,300 transistors, operating a 740KHz) to todays fastest commercially available CPU the Intel Xeon W5590 (a 64 bit processor, ~781,000,000 transistors, operating at 3333MHz) processing power has increased exponentially over the years. With this processing power available to programmers there is a tendency with modern programs to not worry about how efficient code is. However there can be improvements of up to but not limited to 350% in the performance of tasks by manipulating the way memory is accessed. This report discusses four small programs and how memory access and algorithm design are used to increase or decrease their execution time.
+  
+== Introduction ==
+Two tasks, computing the minimum value in each column of an array and computing the sum of the difference of diagonally symmetric elements in an array. For each of these there are countless programs that fulfil these task however there can be only one fastest possible program and one slowest possible program (within the rules).
+
+The restrictions on the slowest possible program are that the task is firstly implemented correctly. Code may not perform the same function more than once. Code must be related to the task at hand only. Loops may be nested to the fourth level but no deeper. All code is to be compiled using only the ''-O'' flag.
+
+This report delves into what makes the fastest and slowest possible programs for performing these task effective or otherwise not. 
+
+== The Tasks ==
+=== Column Minimum ===
+This function takes as inputs two arrays and returns nothing. A two dimensional array of integers, {{{int x[512][512]}}} as well as an array of integers defined, {{{int minima[512]}}}.
+  
+Upon the call of the function the array {{{x}}} contains values which during the execution will be left unchanged but are required for the computation. {{{minima}}} however contains no information required during the execution. Once the program has completed all of its operations the n'th element of the {{{minima}}} array is the smallest value in the n'th column of {{{x}}}.
+  
+Strictly upon completion the following proposition should hold. 
+    http://platypus.ics.mq.edu.au/~s4098312/comp226/report/images/defcol.png
+  
+To perform this task we assume firstly that the first element accessed in each column is the smallest. By then comparing this value with every other value in that column and replacing it should the value of the element currently being compared be smaller we can find the smallest value in that column. This is repeated over the columns of the array. Once it is complete the proposition above should be true. Performing this algorithm will only require a single access of each element of {{{x}}}.
+
+=== Diagonal Symmetry Measure ===
+There is a single input a two dimensional array, {{{int x[512][512]}}}. Once computation is completed an integer value is returned. The value of the integer is the sum of the difference between diagonally symmetric elements.
+
+Strictly the value of what is returned is defined as:
+  http://platypus.ics.mq.edu.au/~s4098312/comp226/report/images/defsym.png
+
+Computing this value is as simple as accessing each element of the array and adding the difference between it and the diagonally symmetric element.
+
+  
+== The Machine ==
+Before exploring the programs lets first consider the machine that will be executing the code.
+
+Code was complied and run on the titanic server at Macquarie University. The machine titanic is a Sun Fire V490 Server produced by Sun Microsystems. It has four Sun Microsystems UltraSPARC IV+ processors with 8192MB of memory.
+
+The operating system is UNIX 03 compliant namely SunOS 5.10. The C compiler available on the machine is the GNU C compiler version, gcc (GCC) 3.4.6.
+
+=== Caches ===
+
+The four UltraSPARC IV+ processors each have a level 1 cache of 64-KB data and 64-KB instruction per pipeline, level 2 cache of 2 MB shared on-chip and lastly level 3 cache 32 MB shared external.
+
+|| '''Cache''' || '''Size''' || '''Line Size''' || '''Set Associativity''' || '''Replacement Policy''' |||
+|| Instruction Cache || 64KB || 64-byte || 4-way || Pseudo-Random ||
+|| Data Cache || 64KB || 32-byte || 4-way || Pseudo-Random ||
+|| Prefetch Cache || 2KB || 64-byte || 4-way || Sequential ||
+|| L-2 Cache || 2MB || 64-byte || 4-way || Pseudo-LRU ||
+|| L-3 Cache || 32MB || 64-byte || 4-way || Pseudo-LRU ||
+
+The largest collection of data in these tasks is the array {{{int x[512][512]}}} each element of the array being assigned 4 bytes of memory sees the entire array equate to 1 MB. It fits into the L-2 and L-3 caches. The number of misses on those caches is therefore constant. There are only compulsory misses on the L-2 cache. The order in which data is accessed is will not affect the miss rate at all of the L-2 and L-3 caches. The miss rate on the L-2 cache will be 12.5%. This is unavoidable and unchangeable. For the purposes of simplicity all increases or decreases in performance are due to the memory access pattern are solely due to misses on the L-1 cache. 
+
+There is also the prefetch to consider however the way in which the prefetch cache operates is never disclosed by Sun Microsystems and is impossible therefore to predict its behaviour.
+
+= The programs =
+ 
+== Column minimum - Slow ==
+{{{#!cplusplus
+void colmin_slow (int x[512][512], int minima[512]){
+        int i,j;
+        for (i=0;i<512;i++) {
+                minima[i]=x[0][i];
+                for(j=1;j<512;j++) {
+                        if (minima[i]>x[j][i]) {
+                                minima[i]=x[j][i];
+                        }//end if
+                }//end for j
+        }//end for i
+}//end colmin_slow
+}}}
+
+Execution time was recorded to be '''5.90'''ms/operation.
+
+The access pattern used by this program is simple. All it does through the iteration of the loops is simply traverse the array down the column to the bottom then moves across.
+
+A L-1 cache line is 32 bytes in a C int is 4 bytes in length. There are therefore 8 ints stored in each cache line. Attempts were made to make the code execute slower by skipping across rows in multiples of cache line lengths in an attempt to generate capacity misses. ie. Traverse down column 0,8,..,504,1,9,..,505,2,10..
+
+A similar principle was then implemented for jumping down rows this also was intended to fill an individual set of the 1024 sets of the L-1 cache in one go. Attempting again to induce capacity misses.
+
+Below is a chart showing execution time of the colmin function on the y-axis depending on the how many rows were skipped on the x-axis. Each bar corresponds to the number of columns that were skipped.
+  http://platypus.ics.mq.edu.au/~s4098312/comp226/report/images/colminslowtime.gif
+
+As you can see the slowest program accessed the array x in jumps down each column in multiples of 16. This factor of 16 down the column must therefore have some significance. This is due to the fact that it is only possible to store 16 x 512 integer values in each sub block of the L-1 cache. For any element in the array 16 elements down is guaranteed to be in a different sub block of the cache.
+
+The difference between jumping down columns 16 at a time and just going straight down the column was only '''0.3'''ms. I imagined that this was more than likely due to need for another nested loop. It was for this reason that I have concluded that the slowest possible memory access pattern for an array of integers with 512 x 512 elements is to simply traverse down the columns.
+
+== Column minimum - Fast ==
+{{{#!cplusplus
+void colmin_fast (int x[512][512], int minima[512]) { 
+        int i;
+		// startminiset
+		minima[0]=x[0][0];
+		minima[1]=x[0][1];
+			.
+			.
+			.
+		minima[510]=x[0][510];
+		minima[511]=x[0][511];
+		//endminiset
+
+        for(i=511;i>=1;i--) {
+			//start colmin unroll
+			if(x[i][0]<minima[0]){minima[0]=x[i][0];}
+			if(x[i][1]<minima[1]){minima[1]=x[i][1];}
+				.
+				.
+				.
+			if(x[i][510]<minima[510]){minima[510]=x[i][510];}
+			if(x[i][511]<minima[511]){minima[511]=x[i][511];}
+			//end colmin unroll
+        }//end for i
+}//end colmin_fast
+}}}
+
+Execution time was recorded to be '''1.70ms'''/operation.
+
+The quickest way to traverse the array is to move from elemenents that are physically stored close together. From the table below it is intuative to see that elements are stored in addresses starting at x[0][0] moveing across the row to x[0][511] from there moving to the next row down at starting at the first element of that row. It is for this reason that traversing the array row by row was chosen.
+
+|| '''Element''' || '''Address''' ||
+|| &x[0][510] || 0x130768 ||
+|| &x[0][511] || 0x13076c ||
+|| &x[1][0] || 0x130770 ||
+|| &x[1][1] || 0x130774 ||
+||<-2> Memory addresses of array elements.[[BR]] ~-Source in appendix-~ ||
+
+The reason for looping in the manner is simple very simple simple one. Best highlighted with an example. Below are 2 loops that perform an operation 512 times. First loop starts i at 0 and goes to 511. The other starts i at 511 and goes to 0. The assembler for each is generated also.
+----
+{{{#!cplusplus
+for (i=0;i<512;i++) {
+	__asm__("  xor %r0,%r0,%r0");
+}//end for i
+}}}
+{{{
+		mov     0, %g1			! i=0;
+.LL5:
+		xor %r0,%r0,%r0			! __asm__("  xor %r0,%r0,%r0");
+		add     %g1, 1, %g1		! i++
+		cmp     %g1, 511		! compare i with 511
+		ble     .LL5			! branc if i is <= 511
+		nop
+}}}
+----
+{{{#!cplusplus
+for (i=511;i>=0;i--) {
+	__asm__("  xor %r0,%r0,%r0");
+}//end for i
+}}}
+{{{
+		mov     511, %g1		! i=511
+.LL12:
+		xor %r0,%r0,%r0			! __asm__("  xor %r0,%r0,%r0");
+		addcc   %g1, -1, %g1	! i--
+		bpos    .LL12			! branch if i is positive
+		nop
+}}}
+----
+Notice that when I loops from 0 to 511 there are more instructions than when i loops from 511 to 0. This is because the compiler is able to combine the loop decrement and the comparison into one operation. It is for that reason that I have my loop in such a fashion. It will save 511 instructions.
+
+To remove operations pertaining to looping across the rows I've also completely unrolled the loop for going across rows.
+
+== Diagonal Symmetry Measure - Simple ==
+{{{#!cplusplus
+int symmetry_simple (int x[512][512]) {
+        int sum=0;
+        int i,j;
+        int temp;
+        for (i=0;i<512;i++) {
+                for (j=0;j<512;j++) {
+                        temp=x[i][j]-x[j][i];
+                        if (temp<0) {temp*=-1;} sum+=temp;
+                }//end for j
+        }//end for i
+        return sum;
+}//end symmetry_simple
+}}}
+
+Execution time was recorded to be '''5.36ms'''/operation.
+
+This is a very straight forward task. There are however many observations to be made and considered when attempting to improve execution time.
+
+Please see http://platypus.ics.mq.edu.au/~s4098312/comp226/symmetry.html It demonstrates the memory access pattern in a more graphical fashion.
+
+== Diagonal Symmetry Measure - Fast ==
+{{{#!cplusplus
+int symmetry_fast (int x[512][512]) {
+        int sum=0;
+        int i,j,k,l;
+        int temp;
+        for (i=0;i<512;i=i+8) {
+                temp=x[i][i+1]-x[i+1][i]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i][i+2]-x[i+2][i]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i][i+3]-x[i+3][i]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i][i+4]-x[i+4][i]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i][i+5]-x[i+5][i]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i][i+6]-x[i+6][i]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i][i+7]-x[i+7][i]; if (temp<0) {temp*=-1;} sum+=temp;
+                
+                temp=x[i+1][i+2]-x[i+2][i+1]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+1][i+3]-x[i+3][i+1]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+1][i+4]-x[i+4][i+1]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+1][i+5]-x[i+5][i+1]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+1][i+6]-x[i+6][i+1]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+1][i+7]-x[i+7][i+1]; if (temp<0) {temp*=-1;} sum+=temp;
+                
+                temp=x[i+2][i+3]-x[i+3][i+2]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+2][i+4]-x[i+4][i+2]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+2][i+5]-x[i+5][i+2]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+2][i+6]-x[i+6][i+2]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+2][i+7]-x[i+7][i+2]; if (temp<0) {temp*=-1;} sum+=temp;
+                
+                temp=x[i+3][i+4]-x[i+4][i+3]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+3][i+5]-x[i+5][i+3]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+3][i+6]-x[i+6][i+3]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+3][i+7]-x[i+7][i+3]; if (temp<0) {temp*=-1;} sum+=temp;
+                
+                temp=x[i+4][i+5]-x[i+5][i+4]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+4][i+6]-x[i+6][i+4]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+4][i+7]-x[i+7][i+4]; if (temp<0) {temp*=-1;} sum+=temp;
+                
+                temp=x[i+5][i+6]-x[i+6][i+5]; if (temp<0) {temp*=-1;} sum+=temp;
+                temp=x[i+5][i+7]-x[i+7][i+5]; if (temp<0) {temp*=-1;} sum+=temp;
+                
+                temp=x[i+6][i+7]-x[i+7][i+6]; if (temp<0) {temp*=-1;} sum+=temp;
+        }//end diagonal
+        for (i=0;i<512;i=i+8) {
+                for (j=i+8;j<512;j=j+8) {
+                        for (k=i;k<i+8;k++) {
+                                for (l=j;l<j+8;l++) {
+                                        temp=x[l][k]-x[k][l];
+                                        if(temp<0) {temp*=-1;} sum+=temp;
+                                }//end for l
+                        }//end for k
+                }//end for j
+        }//end for i
+        return sum*2;
+}//end symmetry_simple
+}}}
+
+Execution time was recorded to be '''1.87ms'''/operation.
+
+Having watched the demonstration above it becomes very apparent that the same element of the array in memory is accessed more than once when using the simple algorithm. Lets define '''''n''''' to be the value of {{{x[i][j]}}} and '''''m''''' to be the value of {{{x[j][i]}}} for some arbitrary {{{i}}} and {{{j}}}. Consider '''''|n-m|''''' this can be thought of as the distance between '''''n''''' and '''''m''''' when they are placed on a number line. '''''|m-n|''''' is therefore the distance between '''''m''''' and '''''n'''''. It is apparent that the distance between two objects does not change dependant on which object you are calculating the distance from. They will be the same. It is therefore so that '''''|{{{x[i][j]}}}-{{{x[j][i]}}}| + |{{{x[j][i]}}}-{{{x[i][j]}}}| = 2( |{{{x[i][j]}}}-{{{x[j][i]}}}| )'''''
+
+With this knowledge it is apparent that you need only calculate the difference between elements of the array once and multiple the resulting sum by 2. This completed, execution time was reduced to approximately '''2.6ms'''/operation. This however is not the fastest execution time possible the changes made thus far are simply to the algorithm which resulted in half the memory accesses. The way in which that memory was accessed was still exactly the same and could be improved dramatically.
+
+We know that accessing memory closer together is much faster than memory that is a long way apart. This is due to the caches storing information that is close by as well as the memory you are attempting to access. It was for this reason accessing the memory in blocks as opposed to reading directly across the row would make drastic improvements.
+
+The figure below plots execution time versus the size of one of the sides of the block.
+  http://platypus.ics.mq.edu.au/~s4098312/comp226/report/images/symblocktime.png
+
+What is it about 8 as the block size that best utilizes the cache? Consider the block x[0][8] to x[0][16] and down 8 rows. Now lets consider the memory and L-1 cache once the block is processed only the first column of each block of elements would have missed. The table cells below represent the block of memory that will be accessed and the opposite block of memory that will be accessed as the array indexes are interchanged. A green element is one that when accessed was hit in the L-1 cache the red those that weren't.
+
+|| || || || || || || || ||<#CC0000> 0,8 ||<#00CC00> 0,9 ||<#00CC00> 0,10 ||<#00CC00> 0,11 ||<#00CC00> 0,12 ||<#00CC00> 0,13 ||<#00CC00> 0,14 ||<#00CC00> 0,15 ||
+|| || || || || || || || ||<#CC0000> 1,8 ||<#00CC00> 1,9 ||<#00CC00> 1,10 ||<#00CC00> 1,11 ||<#00CC00> 1,12 ||<#00CC00> 1,13 ||<#00CC00> 1,14 ||<#00CC00> 1,15 ||
+|| || || || || || || || ||<#CC0000> 2,8 ||<#00CC00> 2,9 ||<#00CC00> 2,10 ||<#00CC00> 2,11 ||<#00CC00> 2,12 ||<#00CC00> 2,13 ||<#00CC00> 2,14 ||<#00CC00> 2,15 ||
+|| || || || || || || || ||<#CC0000> 3,8 ||<#00CC00> 3,9 ||<#00CC00> 3,10 ||<#00CC00> 3,11 ||<#00CC00> 3,12 ||<#00CC00> 3,13 ||<#00CC00> 3,14 ||<#00CC00> 3,15 ||
+|| || || || || || || || ||<#CC0000> 4,8 ||<#00CC00> 4,9 ||<#00CC00> 4,10 ||<#00CC00> 4,11 ||<#00CC00> 4,12 ||<#00CC00> 4,13 ||<#00CC00> 4,14 ||<#00CC00> 4,15 ||
+|| || || || || || || || ||<#CC0000> 5,8 ||<#00CC00> 5,9 ||<#00CC00> 5,10 ||<#00CC00> 5,11 ||<#00CC00> 5,12 ||<#00CC00> 5,13 ||<#00CC00> 5,14 ||<#00CC00> 5,15 ||
+|| || || || || || || || ||<#CC0000> 6,8 ||<#00CC00> 6,9 ||<#00CC00> 6,10 ||<#00CC00> 6,11 ||<#00CC00> 6,12 ||<#00CC00> 6,13 ||<#00CC00> 6,14 ||<#00CC00> 6,15 ||
+|| || || || || || || || ||<#CC0000> 7,8 ||<#00CC00> 7,9 ||<#00CC00> 7,10 ||<#00CC00> 7,11 ||<#00CC00> 7,12 ||<#00CC00> 7,13 ||<#00CC00> 7,14 ||<#00CC00> 7,15 ||
+||<#CC0000> 8,0 ||<#00CC00> 8,1 ||<#00CC00> 8,2 ||<#00CC00> 8,3 ||<#00CC00> 8,4 ||<#00CC00> 8,5 ||<#00CC00> 8,6 ||<#00CC00> 8,7 ||
+||<#CC0000> 9,0 ||<#00CC00> 9,1 ||<#00CC00> 9,2 ||<#00CC00> 9,3 ||<#00CC00> 9,4 ||<#00CC00> 9,5 ||<#00CC00> 9,6 ||<#00CC00> 9,7 ||
+||<#CC0000> 10,0 ||<#00CC00> 10,1 ||<#00CC00> 10,2 ||<#00CC00> 10,3 ||<#00CC00> 10,4 ||<#00CC00> 10,5 ||<#00CC00> 10,6 ||<#00CC00> 10,7 ||
+||<#CC0000> 11,0 ||<#00CC00> 11,1 ||<#00CC00> 11,2 ||<#00CC00> 11,3 ||<#00CC00> 11,4 ||<#00CC00> 11,5 ||<#00CC00> 11,6 ||<#00CC00> 11,7 ||
+||<#CC0000> 12,0 ||<#00CC00> 12,1 ||<#00CC00> 12,2 ||<#00CC00> 12,3 ||<#00CC00> 12,4 ||<#00CC00> 12,5 ||<#00CC00> 12,6 ||<#00CC00> 12,7 ||
+||<#CC0000> 13,0 ||<#00CC00> 13,1 ||<#00CC00> 13,2 ||<#00CC00> 13,3 ||<#00CC00> 13,4 ||<#00CC00> 13,5 ||<#00CC00> 13,6 ||<#00CC00> 13,7 ||
+||<#CC0000> 14,0 ||<#00CC00> 14,1 ||<#00CC00> 14,2 ||<#00CC00> 14,3 ||<#00CC00> 14,4 ||<#00CC00> 14,5 ||<#00CC00> 14,6 ||<#00CC00> 14,7 ||
+||<#CC0000> 15,0 ||<#00CC00> 15,1 ||<#00CC00> 15,2 ||<#00CC00> 15,3 ||<#00CC00> 15,4 ||<#00CC00> 15,5 ||<#00CC00> 15,6 ||<#00CC00> 15,7 ||
+
+A cache line contains 8 integers. It is clearly detrimental to the execution speed to use a block size any smaller than the cache size. Once any element is read into the cache the entire cache line it belongs to is also read in. So if something is put into the cache it is logical to use it as well. Save having the same value read into the cache multiple times. Any cache blocks that were larger caused data to be placed upon lines.
+
+There is one last portion of this task that still has yet to be discussed. The blocks that contain elements that are part of the diagonal ie. {{{x[i][i]}}} for some valid {{{i}}}.  These can not be computed in the same way as the others for the simple reason that the blocks contain elements on both sides of the diagonal. Each element of the block that is on the appropriate side of the diagonal is processed, the diagonal ignored simply because the result of  |{{{x[i][i]}}}-{{{x[i][i]}}}| for any valid {{{i}}} will always be 0. This is unrolled and computed first then the blocks on the upper left of the array are processed.
+
+Attempts were made to unroll the inner loops these however caused execution speed to decrease. It was therefore theorised that the prefetch cache is used in some manner. As mentioned in the discussion of the caches the inner workings of this cache are never disclosed by Sun Microsystems and are therefore impossible to predict.
+
+== Conclusion ==
+
+With every passing year the ability of machines to process information is drastically improved. There are however always limitations with these machines. Computational tasks even though completed in fractions of milliseconds can still be extremely in-effective. Through the understanding of the inner workings of the machine the programmer writing code will be able to drastically improve the efficiency of code they produce. This report has shown two instances of where effective use of the CPU caches can improved execution time by up to 350%. Perhaps computers will one day be able to perform any conceivable calculation in an unmeasurably small amount of time. In the mean time programmers writing code for machines will hopefully find this study useful in writing effective code of their own.
+[[BR]]
+[[BR]]
+[[BR]]
+[[BR]]
+~+'''"Man landed on the moon with 2KB of memory"'''+~
+
+== References ==
+
+  * Intel 4004, viewed 28 October 2009 <http://en.wikipedia.org/wiki/Intel_4004>
+  * List of Intel microprocessors, viewed 28 October 2009 <http://en.wikipedia.org/wiki/List_of_Intel_microprocessors>
+  * High End CPU's - Intel vs AMD, viewed 28 October 2009 <http://www.cpubenchmark.net/high_end_cpus.html>
+  * Sun Fire V490 Server - Specifications, viewed 28 October 2009 <http://www.sun.com/servers/midrange/v490/specs.xml>
+  * UltraSPARC IV+ Processor - User’s Manual Supplement, viewed 28 October 2009 <http://www.sun.com/processors/manuals/USIVplus_v1.0.pdf>
+  * Apollo 11 Guidance Computer, viewed 29 October 2009 <http://www.migrationsolutions.com/node/134>
+  * Single UNIX Specification, viewed 29 October 2009 <http://en.wikipedia.org/wiki/Single_Unix_Specification#Solaris>
+
+
+----
+
+== Appendix ==
+=== Program Licencing ===
+All code in this report, unless otherwise stipulated, is written by Simon Anthony Dawson <simon.dawson1@mq.edu.au>. The following license applys to all code written by Simon Anthony Dawson.
+{{{
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+}}}
+
+=== Source Code Listing ===
+==== Timing execution ====
+Times were recorded using code provided by Leonard G C Hamey of Macquarie University. Links to source code provided below.
+ * [http://web.science.mq.edu.au/~len/comp226_2009/assign/dotest.c]
+ * [http://web.science.mq.edu.au/~len/comp226_2009/assign/dotest.h]
+ * [http://web.science.mq.edu.au/~len/comp226_2009/assign/testop.c]
+
+==== Column Minimum Slow ====
+''' colmin_slow.c '''
+{{{#!cplusplus
+void colmin_slow (int x[515][512], int minima[512]){
+	int i,j,k,l;
+	int row,col;
+	for (i=0;i<RS;i++) {
+		for (j=0;j<512;j+=RS) {
+			row=0;
+			col=i+j;
+			minima[col]=x[row][col];
+			for (l=0;l<CS;l++) {
+				for (k=0;k<512;k+=CS) {
+					row = k+l;
+					col = i+j; 
+					if (minima[col]>x[row][col]) {
+						minima[col]=x[row][col];
+					}//end if
+				}//end for l
+			}//end for k
+		}//end for j
+	}//end for i
+}//end colmin_slow
+}}}
+''' build.sh'''
+{{{
+#!/bin/bash
+
+gcc -O -c testop.c -o testop.o
+gcc -O -c dotest.c -o dotest.o
+
+for i in 1 2 4 8 16 32 64 128 256
+do
+  for j in 1 2 4 8 16 32 64 128 256
+  do
+  	echo "   gcc -DCS=$i -DRS=$j -O -c  colmin_slow.c -o colmin_slow.o"
+	gcc -DCS=$i -DRS=$j -O -c  colmin_slow.c -o colmin_slow.o
+  	gcc testop.o colmin_slow.o dotest.o -o report.bin 
+	echo "Colmin skipped - $i, Row Skipped - $j" >> values.txt
+  	./report.bin >> values.txt
+  done
+done 
+}}}
+==== Diagonal Symmetry Measure Fast ====
+'''symmetry_fast.c'''
+{{{#!cplusplus
+int symmetry_fast (int x[512][512]) {
+	int sum=0;
+	int i,j,k,l;
+	int temp;
+	for (i=0;i<512;i=i+BS) {
+		for (j=i;j<i+BS;j++) {
+			for (k=i+1;k<BS+i;k++) {
+				temp=x[j][k]-x[k][j];	
+				if(temp<0) {temp*=-1;} sum+=temp;
+			}//end for k
+		}//end for j
+	}//end for i
+
+	for (i=0;i<512;i=i+BS) {
+		for (j=i+BS;j<512;j=j+BS) {
+			for (k=0;k<BS;k++) {
+				for (l=0;l<BS;l++) {
+					temp=x[i+k][j+l]-x[j+l][i+k];
+					if(temp<0) {temp*=-1;} sum+=temp;
+				}//end for l
+			}//end for k
+		}//end for j
+	}//end for i
+	return sum*2;	
+}//end symmetry_fast
+}}}
+'''build.sh'''
+{{{
+#!/bin/bash
+
+  gcc -O -c testop.c -o testop.o
+  gcc -O -c dotest.c -o dotest.o
+
+for i in 1 2 4 8 16 32 64 128 256
+do
+  echo "Block size $i"
+  echo " Compile testBlockAccess object"
+  echo "   gcc -DBS=$i -O -c  symmetry_fast.c -o symmetry_fast.o"
+  gcc -DBS=$i -O -c  symmetry_fast.c -o symmetry_fast.o
+  echo " Linking"
+  gcc testop.o symmetry_simple.o dotest.o -o report.bin 
+  ./report.bin >> values.txt
+done 
+}}}
+==== Print addresses ====
+{{{#!cplusplus
+#include <iostream>
+using namespace std;
+
+int main () {
+    int x[512][512];
+    cout<<"&x[0][510]: "<<&x[0][510]<<endl;
+    cout<<"&x[0][511]: "<<&x[0][511]<<endl;
+    cout<<"&x[1][0]: "<<&x[1][0]<<endl;
+    cout<<"&x[1][1]: "<<&x[1][1]<<endl;
+    return 0;
+}
+}}}
